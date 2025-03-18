@@ -1,0 +1,96 @@
+# Description: Docker compose file for AIOMLS services
+services:
+  # ===========================================================================
+  loki:
+    image: grafana/loki:latest
+    container_name: loki
+    restart: always
+    networks:
+      - vbridge
+    volumes:
+      - loki-conf:/mnt/config:ro
+      - loki-tmp:/tmp/loki:rw
+    ports:
+      - "3100:3100"
+      - "9096:9096"
+    command: -config.file=/mnt/config/loki-config.yaml
+    depends_on:
+      loki-getconf:
+        condition: service_completed_successfully
+  # ===========================================================================
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    restart: always
+    networks:
+      - vbridge
+    volumes:
+      - grafana:/var/lib/grafana
+    ports:
+      - "3000:3000"
+  # ===========================================================================
+  promtail:
+    image: grafana/promtail:latest
+    container_name: promtail
+    restart: always
+    networks:
+      - vbridge
+    volumes:
+      - promtail-conf:/mnt/config
+      - promtail-tmp:/tmp/promtail
+      - /var/log:/var/log
+    command: -config.file=/mnt/config/promtail-config.yaml
+    depends_on:
+      - loki
+  # ===========================================================================
+  promtail-getconf:
+    image: alpine:latest
+    container_name: promtail-getconf
+    restart: "no"
+    networks:
+      - vbridge
+    volumes:
+      - promtail-conf:/mnt/config
+    environment:
+      URI: https://raw.githubusercontent.com/grafana/loki/v3.4.1/clients/cmd/promtail/promtail-docker-config.yaml
+    command: >
+      sh -c "
+        echo 'Downloading promtail-config.yaml...';
+        wget -O /mnt/config/promtail-config.yaml $${URI};
+        sed -i 's|http://loki:3100|http://loki:3100|g' /mnt/config/promtail-config.yaml;
+      "
+  # ===========================================================================
+  loki-getconf:
+    image: alpine:latest
+    container_name: loki-getconf
+    restart: "no"
+    networks:
+      - vbridge
+    volumes:
+      - loki-conf:/mnt/config
+    environment:
+      URI: https://raw.githubusercontent.com/grafana/loki/v3.4.1/cmd/loki/loki-local-config.yaml
+    command: >
+      sh -c "
+        echo 'Downloading loki-config.yaml...';
+        wget -O /mnt/config/loki-config.yaml $${URI};
+        sed -i 's/log_level: debug/log_level: info/' /mnt/config/loki-config.yaml;
+      "
+volumes:
+  # ---------------------------------------------
+  loki-conf:
+    name: loki-conf
+  loki-tmp:
+    name: loki-tmp
+  # ---------------------------------------------
+  grafana:
+    name: grafana
+  # ---------------------------------------------
+  promtail-conf:
+    name: promtail-conf
+  promtail-tmp:
+    name: promtail-tmp
+# ===============================================
+networks:
+  vbridge:
+    name: vbridge
