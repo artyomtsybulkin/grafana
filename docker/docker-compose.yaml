@@ -1,0 +1,111 @@
+# =============================================================================
+# Content: Grafana, Loki, Promtail, Syslog-NG
+# Test: docker compose -f docker-compose.yaml config
+services:
+# =============================================================================
+# Grafana
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    restart: unless-stopped
+    networks: [ grafana-subnet ]
+    volumes:
+      - grafana:/var/lib/grafana:rw
+    ports:
+      - "3000:3000"
+# =============================================================================
+# Loki
+  grafana-loki:
+    image: grafana/loki:latest
+    container_name: grafana-loki
+    restart: unless-stopped
+    networks: [ grafana-subnet ]
+    volumes:
+      - grafana-loki-conf:/mnt/config:ro
+      - grafana-loki-tmp:/tmp/loki:rw
+    ports:
+      - "3100:3100"
+      - "9096:9096"
+    command: -config.file=/mnt/config/loki-config.yaml
+    depends_on:
+      grafana-loki-fetch-conf:
+        condition: service_completed_successfully
+# =============================================================================
+# Promtail
+  grafna-promtail:
+    image: grafana/promtail:latest
+    container_name: grafna-promtail
+    restart: unless-stopped
+    networks: [ grafana-subnet ]
+    volumes:
+      - grafana-promtail-conf:/mnt/config:ro
+      - grafana-promtail-tmp:/tmp/promtail:rw
+      - /var/log:/var/log
+    command: -config.file=/mnt/config/promtail-config.yaml
+    depends_on: [ grafana-loki ]
+# =============================================================================
+# Start once: Fetch Promtail configuration 
+  grafana-promtail-fetch-conf:
+    image: alpine:latest
+    container_name: grafana-promtail-fetch-conf
+    restart: "no"
+    networks: [ grafana-subnet ]
+    volumes:
+      - grafana-promtail-conf:/mnt/config:rw
+    environment:
+      URI: "${PROMTAIL_URI}"
+    command: >
+      sh -c "
+        echo 'Downloading promtail-config.yaml...';
+        wget -O /mnt/config/promtail-config.yaml $${URI};
+        sed -i 's|http://loki:3100|http://grafana-loki:3100|g' /mnt/config/promtail-config.yaml;
+      "
+# =============================================================================
+# Start once: Fetch Loki configuration
+  grafana-loki-fetch-conf:
+    image: alpine:latest
+    container_name: grafana-loki-fetch-conf
+    restart: "no"
+    networks: [ grafana-subnet ]
+    volumes:
+      - grafana-loki-conf:/mnt/config:rw
+    environment:
+      URI: "${LOKI_URI}"
+    command: >
+      sh -c "
+        echo 'Downloading loki-config.yaml...';
+        wget -O /mnt/config/loki-config.yaml $${URI};
+        sed -i 's/log_level: debug/log_level: info/' /mnt/config/loki-config.yaml;
+      "
+# =============================================================================
+# Syslog-NG
+  syslog-ng:
+    image: lscr.io/linuxserver/syslog-ng:latest
+    container_name: syslog-ng
+    networks: [ grafana-subnet ]
+    ports:
+      - 514:5514/udp
+      - 601:6601/tcp
+      - 6514:6514/tcp
+    restart: unless-stopped
+    environment:
+      PUID: 1000
+      PGID: 1000
+      TZ: "${TIMEZONE}"
+    volumes:
+      - syslog-ng-conf:/config:ro
+      - syslog-ng-log:/var/log:rw
+# =============================================================================
+# Volumes
+volumes:
+  grafana:                { name: grafana }
+  grafana-loki-conf:      { name: grafana-loki-conf }
+  grafana-loki-tmp:       { name: grafana-loki-tmp }
+  grafana-promtail-conf:  { name: grafana-promtail-conf }
+  grafana-promtail-tmp:   { name: grafana-promtail-tmp }
+  syslog-ng-conf:         { name: syslog-ng-conf }
+  syslog-ng-log:          { name: syslog-ng-log }
+# =============================================================================
+# Networks
+networks:
+  grafana-subnet: { name: grafana-subnet }
