@@ -84,9 +84,8 @@ services:
     container_name: syslog-ng
     networks: [ grafana-subnet ]
     ports:
-      - 514:5514/udp
-      - 601:6601/tcp
-      - 6514:6514/tcp
+      - 514:514/udp
+      - 514:514/tcp
     restart: unless-stopped
     environment:
       PUID: 1000
