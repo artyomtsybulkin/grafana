@@ -1,0 +1,91 @@
+# Content: Grafana, Loki, Syslog-NG
+# ==============================================================================
+# Volumes
+volumes:
+  grafana:        { name: grafana }
+  loki-tmp:       { name: loki-tmp }
+  syslog-log:     { name: syslog-log }
+# ==============================================================================
+# Networks
+networks:
+  grafana-subnet: { name: grafana-subnet }
+# ==============================================================================
+# Services
+services:
+# ==============================================================================
+# Grafana
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    restart: unless-stopped
+    networks: [ grafana-subnet ]
+    volumes:
+      - grafana:/var/lib/grafana:rw
+    ports: ["0.0.0.0:3000:3000"]
+    healthcheck:
+      test: ["CMD", "sh", "-c", "pidof grafana"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    environment:
+      - GF_PATHS_PROVISIONING=/etc/grafana/provisioning
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+      - GF_FEATURE_TOGGLES_ENABLE=alertingSimplifiedRouting,alertingQueryAndExpressionsStepMode
+    entrypoint:
+      - sh
+      - -euc
+      - |
+        mkdir -p /etc/grafana/provisioning/datasources
+        cat <<EOF > /etc/grafana/provisioning/datasources/ds.yaml
+        apiVersion: 1
+        datasources:
+        - name: Loki
+          type: loki
+          access: proxy 
+          orgId: 1
+          url: http://loki:3100
+          basicAuth: false
+          isDefault: true
+          version: 1
+          editable: false
+        EOF
+        /run.sh  
+# ==============================================================================
+# Loki
+  loki:
+    image: grafana/loki:latest
+    container_name: loki
+    restart: unless-stopped
+    networks: [ grafana-subnet ]
+    volumes:
+      - ./loki-config.yaml:/mnt/config/loki-config.yaml
+      - loki-tmp:/tmp/loki:rw
+    ports: ["0.0.0.0:3100:3100","0.0.0.0:9096:9096"]
+    command: -config.file=/mnt/config/loki-config.yaml
+    healthcheck:
+      test: ["CMD", "sh", "-c", "pidof loki"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+# ==============================================================================
+# Syslog-ng
+  syslog-ng:
+    image: balabit/syslog-ng:latest
+    container_name: syslog-ng
+    networks: [ grafana-subnet ]
+    ports: ["0.0.0.0:514:514/udp", "0.0.0.0:514:514/tcp"]
+    restart: unless-stopped
+    environment:
+      PUID: 1000
+      PGID: 1000
+      TZ: "${TIMEZONE}"
+    volumes:
+      - ./syslog-ng.conf:/etc/syslog-ng/syslog-ng.conf
+      - syslog-log:/var/log
+    depends_on: [ loki ]
+    healthcheck:
+      test: ["CMD", "sh", "-c", "pidof syslog-ng"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
