@@ -8,7 +8,7 @@ volumes:
 # ==============================================================================
 # Networks
 networks:
-  grafana-subnet: { name: grafana-subnet }
+  private: { name: private }
 # ==============================================================================
 # Services
 services:
@@ -18,7 +18,7 @@ services:
     image: grafana/grafana:latest
     container_name: grafana
     restart: unless-stopped
-    networks: [ grafana-subnet ]
+    networks: [ private ]
     volumes:
       - grafana:/var/lib/grafana:rw
     ports: ["0.0.0.0:3000:3000"]
@@ -57,7 +57,7 @@ services:
     image: grafana/loki:latest
     container_name: loki
     restart: unless-stopped
-    networks: [ grafana-subnet ]
+    networks: [ private ]
     volumes:
       - ./loki-config.yaml:/mnt/config/loki-config.yaml
       - loki-tmp:/tmp/loki:rw
@@ -73,7 +73,7 @@ services:
   syslog-ng:
     image: balabit/syslog-ng:latest
     container_name: syslog-ng
-    networks: [ grafana-subnet ]
+    networks: [ private ]
     ports: ["0.0.0.0:514:514/udp", "0.0.0.0:514:514/tcp"]
     restart: unless-stopped
     environment:
