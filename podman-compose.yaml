@@ -1,0 +1,109 @@
+# grafana, loki, syslog-ng, and haproxy podman-compose configuration
+
+x-common-options: &common-options
+  mem_limit: 1g
+  cpus: 2.0
+  pids_limit: 100
+  cap_drop: [ ALL ]
+  cap_add: [ NET_BIND_SERVICE ]
+  tmpfs: [ /tmp ]
+  logging: { driver: journald }
+  security_opt: [ no-new-privileges:true ]
+  restart: unless-stopped
+  stop_grace_period: 30s
+x-common-healthcheck: &common-healthcheck
+  interval: 60s
+  timeout: 15s
+  retries: 3
+
+networks:
+  public_net:  { external: true }
+  private_net: { external: true }
+
+
+volumes:
+  grafana_vol: { name: grafana_vol }
+  loki_vol:    { name: loki_vol }
+  syslog_vol:  { name: syslog_vol }
+
+services:
+
+  haproxy:
+    container_name: haproxy
+    image: docker.io/library/haproxy:lts
+    healthcheck:
+      test: ["CMD-SHELL", "pidof haproxy || exit 1"]
+      <<: *common-healthcheck
+    <<: *common-options
+    networks: [ private_net, public_net ]
+    ports: [ "3000:3000", "3100:3100" ]
+    volumes:
+      - ./config/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:Z
+
+  grafana:
+    container_name: grafana
+    image: docker.io/grafana/grafana:latest
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3000/api/health"]
+      <<: *common-healthcheck
+    user: "472:0"
+    <<: *common-options
+    networks: [ private_net ]
+    expose: [ "3000" ]
+    volumes:
+      - grafana_vol:/var/lib/grafana:Z
+    environment:
+      - GF_PATHS_PROVISIONING=/etc/grafana/provisioning
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+      - GF_FEATURE_TOGGLES_ENABLE=alertingSimplifiedRouting,alertingQueryAndExpressionsStepMode
+    entrypoint:
+      - sh
+      - -euc
+      - |
+        mkdir -p /etc/grafana/provisioning/datasources
+        cat <<EOF > /etc/grafana/provisioning/datasources/ds.yaml
+        apiVersion: 1
+        datasources:
+        - name: Loki
+          type: loki
+          access: proxy
+          orgId: 1
+          url: http://loki:3100
+          basicAuth: false
+          isDefault: true
+          version: 1
+          editable: true
+        EOF
+        /run.sh
+    
+  loki:
+    container_name: loki
+    image: docker.io/grafana/loki:latest
+    healthcheck:
+      test: ["CMD-SHELL", "pidof loki || exit 1"]
+      <<: *common-healthcheck
+    user: "10001:10001"
+    <<: *common-options
+    networks: [ private_net ]
+    expose: [ "3100", "9096" ]
+    volumes:
+      - ./config/loki-config.yaml:/mnt/config/loki-config.yaml:Z
+      - loki_vol:/tmp/loki:Z
+    command: -config.file=/mnt/config/loki-config.yaml
+  
+  syslog-ng:
+    container_name: syslog-ng
+    image: docker.io/balabit/syslog-ng:latest
+    depends_on: [ loki ]
+    healthcheck:
+      test: ["CMD-SHELL", "pidof syslog-ng || exit 1"]
+      <<: *common-healthcheck
+    <<: *common-options
+    networks: [ private_net ]
+    ports: ["0.0.0.0:514:514/udp", "0.0.0.0:514:514/tcp"]
+    volumes:
+      - ./config/syslog-ng.conf:/etc/syslog-ng/syslog-ng.conf:Z
+      - syslog_vol:/var/log:Z
+    environment:
+      { PUID: 1000, PGID: 1000, TZ: "${TZ}" }
