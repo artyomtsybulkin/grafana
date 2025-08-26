@@ -7,7 +7,7 @@ Ingress control:
 - I use HAProxy as ingress gateway to Grafana (3000/tcp) and Loki (3100/tcp) services
 - Syslog-ng has it's own filters
 
-```json
+```text
 filter f_network {
     match("^10\\.3\\.(1[0-9]|20)\\." value("SOURCEIP")) or
     match("^172\\.16\\.1([0-4][0-9]|50)\\." value("SOURCEIP"));
